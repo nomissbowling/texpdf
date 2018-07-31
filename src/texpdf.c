@@ -150,6 +150,16 @@ int release_stream(PDF_STREAM **st)
   return 0;
 }
 
+int flush_obj(PDF_OBJ *obj)
+{
+  if(obj->atr){
+    if(!memstream_written(obj->atr, 1, NULL, NULL))
+      fprintf(stderr, "ERROR: obj->atr memstream_written\a\x0D\x0A");
+    memstream_close(obj->atr);
+  }
+  return 0;
+}
+
 int init_xref(PDF_OBJ *obj)
 {
   obj->id = XREF_MAX++;
@@ -177,6 +187,7 @@ int create_obj(PDF_OBJ *obj)
     fprintf(stderr, "overflow obj->id\a\x0D\x0A");
   if(!obj->atr)
     fprintf(stderr, "ERROR: obj->atr memstream_open\a\x0D\x0A");
+  // must call flush_obj() later
   return 0;
 }
 
@@ -186,6 +197,7 @@ int create_xobj(PDF_OBJ *obj, MEM_STREAM *atr, PDF_STREAM *stream)
   fprintf(obj->atr->fp, "%s/Length %d\x0A",
     atr ? atr->buf : "", strlen(stream->buf));
   obj->stream = stream;
+  // must call flush_obj() later
   return 0;
 }
 
@@ -199,6 +211,7 @@ int create_image(PDF_OBJ *obj, int w, int h, int bpc, PDF_STREAM *stream)
   fprintf(obj->atr->fp, "/BitsPerComponent %d\x0A", bpc);
   fprintf(obj->atr->fp, "/ColorSpace /DeviceRGB\x0A");
   fprintf(obj->atr->fp, "/Filter [ /AHx ]\x0A");
+  flush_obj(obj);
   return 0;
 }
 
@@ -273,6 +286,7 @@ int create_metr(PDF_OBJ *obj, char *face, int a, int b, int c, int d, char *st)
   fprintf(obj->atr->fp, "/MaxWidth %d\x0A", 1000);
   fprintf(obj->atr->fp, "/AvgWidth %d\x0A", 507);
   fprintf(obj->atr->fp, "/Style << /Panose <%s> >>\x0A", st);
+  flush_obj(obj);
   return 0;
 }
 
@@ -295,6 +309,7 @@ int create_descf(PDF_OBJ *obj, PDF_OBJ *m, char *face)
   fprintf(obj->atr->fp, " %d %d %d\x0A", 231, 389, 500);
   fprintf(obj->atr->fp, " %d %d %d\x0A", 631, 631, 500);
   fprintf(obj->atr->fp, "]\x0A");
+  flush_obj(obj);
   return 0;
 }
 
@@ -306,6 +321,7 @@ int create_font(PDF_OBJ *obj, PDF_OBJ *d, char *face, char *enc)
   fprintf(obj->atr->fp, "/BaseFont /%s\x0A", face);
   fprintf(obj->atr->fp, "/DescendantFonts [ %d %d R ]\x0A", d->id, d->gen);
   fprintf(obj->atr->fp, "/Encoding /%s\x0A", enc);
+  flush_obj(obj);
   return 0;
 }
 
@@ -313,18 +329,22 @@ int create_resource(PDF_OBJ *obj)
 {
   create_obj(obj);
   fprintf(obj->atr->fp, "/ProcSet [ /PDF /Text ]\x0A");
+  // must call flush_obj() later
   return 0;
 }
 
 int add_resource(PDF_OBJ *obj, char *rn, char *ra, PDF_OBJ *r)
 {
   fprintf(obj->atr->fp, "/%s << /%s %d %d R >>\x0A", rn, ra, r->id, r->gen);
+  // must call flush_obj() later
   return 0;
 }
 
 int create_contents(PDF_OBJ *obj, PDF_STREAM *stream)
 {
-  return create_xobj(obj, NULL, stream);
+  create_xobj(obj, NULL, stream);
+  flush_obj(obj);
+  return 0;
 }
 
 int create_page(PDF_OBJ *obj, PDF_OBJ *res, PDF_OBJ *ct)
@@ -333,12 +353,14 @@ int create_page(PDF_OBJ *obj, PDF_OBJ *res, PDF_OBJ *ct)
   fprintf(obj->atr->fp, "/Type /Page\x0A");
   fprintf(obj->atr->fp, "/Resources %d %d R\x0A", res->id, res->gen);
   fprintf(obj->atr->fp, "/Contents %d %d R\x0A", ct->id, ct->gen);
+  // must call set_parent() later to flush_obj()
   return 0;
 }
 
 int set_parent(PDF_OBJ *obj, PDF_OBJ *pt)
 {
   fprintf(obj->atr->fp, "/Parent %d %d R\x0A", pt->id, pt->gen);
+  flush_obj(obj);
   return 0;
 }
 
@@ -354,6 +376,7 @@ int create_pages(PDF_OBJ *obj, PDF_OBJ *p, int cnt, int x, int y, int w, int h)
   fprintf(obj->atr->fp, " ]\x0A");
   fprintf(obj->atr->fp, "/Count %d\x0A", cnt);
   fprintf(obj->atr->fp, "/MediaBox [ %d %d %d %d ]\x0A", x, y, w, h);
+  flush_obj(obj);
   return 0;
 }
 
@@ -362,6 +385,7 @@ int create_root(PDF_OBJ *obj, PDF_OBJ *pgs)
   create_obj(obj);
   fprintf(obj->atr->fp, "/Type /Catalog\x0A");
   fprintf(obj->atr->fp, "/Pages %d %d R\x0A", pgs->id, pgs->gen);
+  flush_obj(obj);
   return 0;
 }
 
@@ -372,25 +396,27 @@ int create_info(PDF_OBJ *obj, char *dt, char *ttl, char *ath, char *prd)
   fprintf(obj->atr->fp, "/Title (%s)\x0A", ttl);
   fprintf(obj->atr->fp, "/Author (%s)\x0A", ath);
   fprintf(obj->atr->fp, "/Producer (%s)\x0A", prd);
+  flush_obj(obj);
   return 0;
 }
 
 int out_objects(FILE *fp)
 {
   char *p;
-  int i, j, l;
+  int i, l;
   for(i = 1; i < XREF_MAX; ++i){
     l = fprintf(fp, "%d %d obj\x0D\x0A", XREF[i].obj->id, XREF[i].obj->gen);
     l += fprintf(fp, "<<\x0D\x0A");
-    if(!memstream_written(XREF[i].obj->atr, 1, NULL, NULL))
-      fprintf(stderr, "ERROR: obj->atr memstream_written\a\x0D\x0A");
-    for(p = XREF[i].obj->atr->buf; p = strtok(p, "\x0A"); p += strlen(p) + 1)
-      l += fprintf(fp, " %s\x0D\x0A", p);
-    memstream_close(XREF[i].obj->atr);
-    memstream_release(&XREF[i].obj->atr);
+    if(XREF[i].obj->atr){
+      for(p = XREF[i].obj->atr->buf; p = strtok(p, "\x0A"); p += strlen(p) + 1)
+        l += fprintf(fp, " %s\x0D\x0A", p);
+      memstream_release(&XREF[i].obj->atr);
+    }
     l += fprintf(fp, ">>\x0D\x0A");
     if(XREF[i].obj->stream){
-      l += fprintf(fp, "stream\x0D\x0A%s\x0D\x0A", XREF[i].obj->stream->buf);
+      l += fprintf(fp, "stream\x0D\x0A");
+      l += fwrite(XREF[i].obj->stream->buf, 1, XREF[i].obj->stream->l, fp);
+      l += fprintf(fp, "\x0D\x0A");
       l += fprintf(fp, "endstream\x0D\x0A");
       release_stream(&XREF[i].obj->stream);
     }
@@ -664,6 +690,7 @@ int cpdf(char *fname)
   create_contents(&contents[2], page2());
   create_page(&page[2], &resource, &contents[2]);
 
+  flush_obj(&resource);
   create_pages(&pages, page, sizeof(page) / sizeof(page[0]), 0, 0, 842, 595);
   create_root(&root, &pages);
   create_info(&info, INF_CREATIONDATE, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
