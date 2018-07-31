@@ -56,7 +56,7 @@ void memstream_close(MEM_STREAM *st)
   }
 }
 
-int memstream_written(MEM_STREAM *st, char **buf, size_t *sz)
+int memstream_written(MEM_STREAM *st, int flg, char **buf, size_t *sz)
 {
   if(!st) return 0;
 #ifndef WIN32
@@ -68,16 +68,19 @@ int memstream_written(MEM_STREAM *st, char **buf, size_t *sz)
   fflush(st->fp);
   // fseek(st->fp, 0, SEEK_SET);
   if(!buf || !sz || (buf && !*buf) || (sz && !*sz)){
-    st->buf = (char *)malloc(st->sz);
+    st->buf = (char *)malloc(st->sz + flg);
     if(!st->buf) return 0;
+    if(flg) st->buf[st->sz] = '\0';
     if(buf && sz){
       *buf = st->buf;
       *sz = st->sz;
     }
   }
-  if(buf && sz && *buf && *sz)
-    return _read(st->pfd[_MEMS_READ], *buf, *sz);
-  else return _read(st->pfd[_MEMS_READ], st->buf, st->sz);
+  if(buf && sz && *buf && *sz){
+    int r = _read(st->pfd[_MEMS_READ], *buf, *sz);
+    if(flg && r <= *sz - 1) buf[r] = '\0';
+    return r;
+  }else return _read(st->pfd[_MEMS_READ], st->buf, st->sz);
 #endif
 }
 

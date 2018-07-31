@@ -53,7 +53,7 @@ int main(int ac, char **av)
   fprintf(stdout, "%d\n", ftell(ost[0]->fp));
 */
   l = sizeof(obuf);
-  r = memstream_written(ost[0], &pobuf, &l);
+  r = memstream_written(ost[0], 1, &pobuf, &l);
   fprintf(stdout, "X(%d) [%s]\n", r, obuf); fflush(stdout);
   fprintf(stdout, "%d\n", ftell(ost[0]->fp));
 
@@ -61,7 +61,7 @@ int main(int ac, char **av)
   fprintf(stdout, "D(%d) [%s]\n", sizeof(buf), buf); fflush(stdout);
   fprintf(stdout, "%d\n", ftell(ost[0]->fp));
 
-  r = memstream_written(ost[0], NULL, NULL);
+  r = memstream_written(ost[0], 1, NULL, NULL);
   fprintf(stdout, "X(%d)%d[%s]\n", r, ost[0]->sz, ost[0]->buf); fflush(stdout);
   fprintf(stdout, "%d\n", ftell(ost[0]->fp));
 

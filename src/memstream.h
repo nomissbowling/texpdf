@@ -31,7 +31,7 @@ typedef struct _MEM_STREAM {
 
 MEM_STREAM *memstream_open(char *buf, size_t sz);
 void memstream_close(MEM_STREAM *st);
-int memstream_written(MEM_STREAM *st, char **buf, size_t *sz);
+int memstream_written(MEM_STREAM *st, int flg, char **buf, size_t *sz);
 void memstream_release(MEM_STREAM **st);
 
 #endif // __MEMSTREAM_H__

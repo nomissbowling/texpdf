@@ -125,6 +125,7 @@ endobj
 
 7 0 obj
 <<
+ /Length 799
  /Type /XObject
  /Subtype /Image
  /Width 8
@@ -132,7 +133,6 @@ endobj
  /BitsPerComponent 8
  /ColorSpace /DeviceRGB
  /Filter [ /AHx ]
- /Length 799
 >>
 stream
 00FF0000FF0000FF0000FF000000FF0000FF0000FF0000FF

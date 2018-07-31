@@ -2,8 +2,8 @@
   PDF
 
   texpdf.c
-  > gcc -m32 -o texpdf texpdf.c (to 32 bit OK)
-  > gcc -o texpdf texpdf.c (to 64 bit OK)
+  > gcc -m32 -o texpdf texpdf.c memstream.c (to 32 bit OK)
+  > gcc -o texpdf texpdf.c memstream.c (to 64 bit OK)
   > texpdf _texpdf_out.pdf
 
   landscape mm  72          96          300         600         1200
@@ -31,6 +31,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include "memstream.h"
 
 #define INF_CREATIONDATE "19991231235959+09'00'"
 #define INF_TITLE "Written TEXT"
@@ -60,7 +61,6 @@
 
 #define MAX_STREAM 8192
 #define MAX_BUF 1024
-#define MAX_ATR 4096
 #define MAX_IDX_LST 500
 
 #define RES_XOBJ "XObject"
@@ -79,7 +79,7 @@ typedef struct _PDF_STREAM {
 typedef struct _PDF_OBJ {
   int id;
   int gen;
-  char atr[MAX_ATR];
+  MEM_STREAM *atr;
   PDF_STREAM *stream;
 } PDF_OBJ;
 
@@ -154,7 +154,7 @@ int init_xref(PDF_OBJ *obj)
 {
   obj->id = XREF_MAX++;
   obj->gen = 0;
-  obj->atr[0] = '\0';
+  obj->atr = NULL;
   obj->stream = NULL;
   XREF[0].obj = obj;
   XREF[0].len = strlen(PDF_HEAD);
@@ -167,7 +167,7 @@ int create_obj(PDF_OBJ *obj)
 {
   obj->id = XREF_MAX++;
   obj->gen = 0;
-  obj->atr[0] = '\0';
+  obj->atr = memstream_open(NULL, 0);
   obj->stream = NULL;
   XREF[obj->id].obj = obj;
   XREF[obj->id].len = 0;
@@ -175,33 +175,30 @@ int create_obj(PDF_OBJ *obj)
   XREF[obj->id].kwd = 'n';
   if(XREF_MAX >= MAX_IDX_LST)
     fprintf(stderr, "overflow obj->id\a\x0D\x0A");
+  if(!obj->atr)
+    fprintf(stderr, "ERROR: obj->atr memstream_open\a\x0D\x0A");
   return 0;
 }
 
-int create_xobj(PDF_OBJ *obj, char *atr, PDF_STREAM *stream)
+int create_xobj(PDF_OBJ *obj, MEM_STREAM *atr, PDF_STREAM *stream)
 {
-  int l = 0;
   create_obj(obj);
+  fprintf(obj->atr->fp, "%s/Length %d\x0A",
+    atr ? atr->buf : "", strlen(stream->buf));
   obj->stream = stream;
-  if(strlen(atr)) l += sprintf(obj->atr + l, atr);
-  l += sprintf(obj->atr + l, "/Length %d\x0A", strlen(obj->stream->buf));
   return 0;
 }
 
 int create_image(PDF_OBJ *obj, int w, int h, int bpc, PDF_STREAM *stream)
 {
-  int l = 0;
-  char atr[MAX_BUF];
-  l += sprintf(atr + l, "/Type /XObject\x0A");
-  l += sprintf(atr + l, "/Subtype /Image\x0A");
-  l += sprintf(atr + l, "/Width %d\x0A", w);
-  l += sprintf(atr + l, "/Height %d\x0A", h);
-  l += sprintf(atr + l, "/BitsPerComponent %d\x0A", bpc);
-  l += sprintf(atr + l, "/ColorSpace /DeviceRGB\x0A");
-  l += sprintf(atr + l, "/Filter [ /AHx ]\x0A");
-  if(strlen(atr) >= MAX_BUF)
-    fprintf(stderr, "overflow atr\a\x0D\x0A");
-  create_xobj(obj, atr, stream);
+  create_xobj(obj, NULL, stream);
+  fprintf(obj->atr->fp, "/Type /XObject\x0A");
+  fprintf(obj->atr->fp, "/Subtype /Image\x0A");
+  fprintf(obj->atr->fp, "/Width %d\x0A", w);
+  fprintf(obj->atr->fp, "/Height %d\x0A", h);
+  fprintf(obj->atr->fp, "/BitsPerComponent %d\x0A", bpc);
+  fprintf(obj->atr->fp, "/ColorSpace /DeviceRGB\x0A");
+  fprintf(obj->atr->fp, "/Filter [ /AHx ]\x0A");
   return 0;
 }
 
@@ -259,132 +256,122 @@ int load_image(PDF_OBJ *obj, char *fn)
 
 int create_metr(PDF_OBJ *obj, char *face, int a, int b, int c, int d, char *st)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /FontDescriptor\x0A");
-  l += sprintf(obj->atr + l, "/FontName /%s\x0A", face);
-  l += sprintf(obj->atr + l, "/Flags %d\x0A", 39);
-  l += sprintf(obj->atr + l, "/FontBBox [ %d %d %d %d ]\x0A", a, b, c, d);
-  l += sprintf(obj->atr + l, "/MissingWidth %d\x0A", 507);
-  l += sprintf(obj->atr + l, "/StemV %d\x0A", 92);
-  l += sprintf(obj->atr + l, "/StemH %d\x0A", 92);
-  l += sprintf(obj->atr + l, "/ItalicAngle %d\x0A", 0);
-  l += sprintf(obj->atr + l, "/CapHeight %d\x0A", 853);
-  l += sprintf(obj->atr + l, "/XHeight %d\x0A", 597);
-  l += sprintf(obj->atr + l, "/Ascent %d\x0A", 853);
-  l += sprintf(obj->atr + l, "/Descent %d\x0A", -147);
-  l += sprintf(obj->atr + l, "/Leading %d\x0A", 0);
-  l += sprintf(obj->atr + l, "/MaxWidth %d\x0A", 1000);
-  l += sprintf(obj->atr + l, "/AvgWidth %d\x0A", 507);
-  l += sprintf(obj->atr + l, "/Style << /Panose <%s> >>\x0A", st);
+  fprintf(obj->atr->fp, "/Type /FontDescriptor\x0A");
+  fprintf(obj->atr->fp, "/FontName /%s\x0A", face);
+  fprintf(obj->atr->fp, "/Flags %d\x0A", 39);
+  fprintf(obj->atr->fp, "/FontBBox [ %d %d %d %d ]\x0A", a, b, c, d);
+  fprintf(obj->atr->fp, "/MissingWidth %d\x0A", 507);
+  fprintf(obj->atr->fp, "/StemV %d\x0A", 92);
+  fprintf(obj->atr->fp, "/StemH %d\x0A", 92);
+  fprintf(obj->atr->fp, "/ItalicAngle %d\x0A", 0);
+  fprintf(obj->atr->fp, "/CapHeight %d\x0A", 853);
+  fprintf(obj->atr->fp, "/XHeight %d\x0A", 597);
+  fprintf(obj->atr->fp, "/Ascent %d\x0A", 853);
+  fprintf(obj->atr->fp, "/Descent %d\x0A", -147);
+  fprintf(obj->atr->fp, "/Leading %d\x0A", 0);
+  fprintf(obj->atr->fp, "/MaxWidth %d\x0A", 1000);
+  fprintf(obj->atr->fp, "/AvgWidth %d\x0A", 507);
+  fprintf(obj->atr->fp, "/Style << /Panose <%s> >>\x0A", st);
   return 0;
 }
 
 int create_descf(PDF_OBJ *obj, PDF_OBJ *m, char *face)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /Font\x0A");
-  l += sprintf(obj->atr + l, "/Subtype /%s\x0A", "CIDFontType2");
-  l += sprintf(obj->atr + l, "/BaseFont /%s\x0A", face);
-  l += sprintf(obj->atr + l, "/WinCharSet %d\x0A", 128);
-  l += sprintf(obj->atr + l, "/FontDescriptor %d %d R\x0A", m->id, m->gen);
-  l += sprintf(obj->atr + l, "/CIDSystemInfo\x0A");
-  l += sprintf(obj->atr + l, "<<\x0A");
-  l += sprintf(obj->atr + l, " /Registry(%s)\x0A", "Adobe");
-  l += sprintf(obj->atr + l, " /Ordering(%s)\x0A", "Japan1");
-  l += sprintf(obj->atr + l, " /Supplement %d\x0A", 2);
-  l += sprintf(obj->atr + l, ">>\x0A");
-  l += sprintf(obj->atr + l, "/DW %d\x0A", 1000);
-  l += sprintf(obj->atr + l, "/W [\x0A");
-  l += sprintf(obj->atr + l, " %d %d %d\x0A", 231, 389, 500);
-  l += sprintf(obj->atr + l, " %d %d %d\x0A", 631, 631, 500);
-  l += sprintf(obj->atr + l, "]\x0A");
+  fprintf(obj->atr->fp, "/Type /Font\x0A");
+  fprintf(obj->atr->fp, "/Subtype /%s\x0A", "CIDFontType2");
+  fprintf(obj->atr->fp, "/BaseFont /%s\x0A", face);
+  fprintf(obj->atr->fp, "/WinCharSet %d\x0A", 128);
+  fprintf(obj->atr->fp, "/FontDescriptor %d %d R\x0A", m->id, m->gen);
+  fprintf(obj->atr->fp, "/CIDSystemInfo\x0A");
+  fprintf(obj->atr->fp, "<<\x0A");
+  fprintf(obj->atr->fp, " /Registry(%s)\x0A", "Adobe");
+  fprintf(obj->atr->fp, " /Ordering(%s)\x0A", "Japan1");
+  fprintf(obj->atr->fp, " /Supplement %d\x0A", 2);
+  fprintf(obj->atr->fp, ">>\x0A");
+  fprintf(obj->atr->fp, "/DW %d\x0A", 1000);
+  fprintf(obj->atr->fp, "/W [\x0A");
+  fprintf(obj->atr->fp, " %d %d %d\x0A", 231, 389, 500);
+  fprintf(obj->atr->fp, " %d %d %d\x0A", 631, 631, 500);
+  fprintf(obj->atr->fp, "]\x0A");
   return 0;
 }
 
 int create_font(PDF_OBJ *obj, PDF_OBJ *d, char *face, char *enc)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /Font\x0A");
-  l += sprintf(obj->atr + l, "/Subtype /%s\x0A", "Type0");
-  l += sprintf(obj->atr + l, "/BaseFont /%s\x0A", face);
-  l += sprintf(obj->atr + l, "/DescendantFonts [ %d %d R ]\x0A",
-    d->id, d->gen);
-  l += sprintf(obj->atr + l, "/Encoding /%s\x0A", enc);
+  fprintf(obj->atr->fp, "/Type /Font\x0A");
+  fprintf(obj->atr->fp, "/Subtype /%s\x0A", "Type0");
+  fprintf(obj->atr->fp, "/BaseFont /%s\x0A", face);
+  fprintf(obj->atr->fp, "/DescendantFonts [ %d %d R ]\x0A", d->id, d->gen);
+  fprintf(obj->atr->fp, "/Encoding /%s\x0A", enc);
   return 0;
 }
 
 int create_resource(PDF_OBJ *obj)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/ProcSet [ /PDF /Text ]\x0A");
+  fprintf(obj->atr->fp, "/ProcSet [ /PDF /Text ]\x0A");
   return 0;
 }
 
 int add_resource(PDF_OBJ *obj, char *rn, char *ra, PDF_OBJ *r)
 {
-  sprintf(obj->atr + strlen(obj->atr), "/%s << /%s %d %d R >>\x0A",
-    rn, ra, r->id, r->gen);
+  fprintf(obj->atr->fp, "/%s << /%s %d %d R >>\x0A", rn, ra, r->id, r->gen);
   return 0;
 }
 
 int create_contents(PDF_OBJ *obj, PDF_STREAM *stream)
 {
-  return create_xobj(obj, "", stream);
+  return create_xobj(obj, NULL, stream);
 }
 
 int create_page(PDF_OBJ *obj, PDF_OBJ *res, PDF_OBJ *ct)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /Page\x0A");
-  l += sprintf(obj->atr + l, "/Resources %d %d R\x0A", res->id, res->gen);
-  l += sprintf(obj->atr + l, "/Contents %d %d R\x0A", ct->id, ct->gen);
+  fprintf(obj->atr->fp, "/Type /Page\x0A");
+  fprintf(obj->atr->fp, "/Resources %d %d R\x0A", res->id, res->gen);
+  fprintf(obj->atr->fp, "/Contents %d %d R\x0A", ct->id, ct->gen);
   return 0;
 }
 
 int set_parent(PDF_OBJ *obj, PDF_OBJ *pt)
 {
-  sprintf(obj->atr + strlen(obj->atr), "/Parent %d %d R\x0A", pt->id, pt->gen);
+  fprintf(obj->atr->fp, "/Parent %d %d R\x0A", pt->id, pt->gen);
   return 0;
 }
 
 int create_pages(PDF_OBJ *obj, PDF_OBJ *p, int cnt, int x, int y, int w, int h)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /Pages\x0A");
-  l += sprintf(obj->atr + l, "/Kids [");
+  fprintf(obj->atr->fp, "/Type /Pages\x0A");
+  fprintf(obj->atr->fp, "/Kids [");
   for(int i = 0; i < cnt; ++i){
-    l += sprintf(obj->atr + l, " %d %d R", p[i].id, p[i].gen);
+    fprintf(obj->atr->fp, " %d %d R", p[i].id, p[i].gen);
     set_parent(&p[i], obj);
   }
-  l += sprintf(obj->atr + l, " ]\x0A");
-  l += sprintf(obj->atr + l, "/Count %d\x0A", cnt);
-  l += sprintf(obj->atr + l, "/MediaBox [ %d %d %d %d ]\x0A", x, y, w, h);
+  fprintf(obj->atr->fp, " ]\x0A");
+  fprintf(obj->atr->fp, "/Count %d\x0A", cnt);
+  fprintf(obj->atr->fp, "/MediaBox [ %d %d %d %d ]\x0A", x, y, w, h);
   return 0;
 }
 
 int create_root(PDF_OBJ *obj, PDF_OBJ *pgs)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/Type /Catalog\x0A");
-  l += sprintf(obj->atr + l, "/Pages %d %d R\x0A", pgs->id, pgs->gen);
+  fprintf(obj->atr->fp, "/Type /Catalog\x0A");
+  fprintf(obj->atr->fp, "/Pages %d %d R\x0A", pgs->id, pgs->gen);
   return 0;
 }
 
 int create_info(PDF_OBJ *obj, char *dt, char *ttl, char *ath, char *prd)
 {
-  int l = 0;
   create_obj(obj);
-  l += sprintf(obj->atr + l, "/CreationDate (D:%s)\x0A", dt);
-  l += sprintf(obj->atr + l, "/Title (%s)\x0A", ttl);
-  l += sprintf(obj->atr + l, "/Author (%s)\x0A", ath);
-  l += sprintf(obj->atr + l, "/Producer (%s)\x0A", prd);
+  fprintf(obj->atr->fp, "/CreationDate (D:%s)\x0A", dt);
+  fprintf(obj->atr->fp, "/Title (%s)\x0A", ttl);
+  fprintf(obj->atr->fp, "/Author (%s)\x0A", ath);
+  fprintf(obj->atr->fp, "/Producer (%s)\x0A", prd);
   return 0;
 }
 
@@ -395,10 +382,12 @@ int out_objects(FILE *fp)
   for(i = 1; i < XREF_MAX; ++i){
     l = fprintf(fp, "%d %d obj\x0D\x0A", XREF[i].obj->id, XREF[i].obj->gen);
     l += fprintf(fp, "<<\x0D\x0A");
-    if(strlen(XREF[i].obj->atr) >= MAX_ATR)
-      fprintf(stderr, "overflow obj->atr (%d)\a\x0D\x0A", i);
-    for(p = XREF[i].obj->atr; p = strtok(p, "\x0A"); p += strlen(p) + 1)
+    if(!memstream_written(XREF[i].obj->atr, 1, NULL, NULL))
+      fprintf(stderr, "ERROR: obj->atr memstream_written\a\x0D\x0A");
+    for(p = XREF[i].obj->atr->buf; p = strtok(p, "\x0A"); p += strlen(p) + 1)
       l += fprintf(fp, " %s\x0D\x0A", p);
+    memstream_close(XREF[i].obj->atr);
+    memstream_release(&XREF[i].obj->atr);
     l += fprintf(fp, ">>\x0D\x0A");
     if(XREF[i].obj->stream){
       l += fprintf(fp, "stream\x0D\x0A%s\x0D\x0A", XREF[i].obj->stream->buf);
