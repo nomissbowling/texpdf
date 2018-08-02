@@ -96,10 +96,13 @@ int chk_ext(char *fn, char *ext)
   return strcmp(buf, ext);
 }
 
-char *hexstr(char *buf, int e, char *str)
+char *hexstr(char *buf, int sz, int e, char *str)
 {
   char *dlm[] = {"", "#", "\\x"};
   int i;
+  buf[0] = '\0';
+  if((e + 2) * strlen(str) >= sz)
+    fprintf(stderr, "ERROR: hexstr (%d >= %d)\a\x0D\x0A", strlen(str), sz);
   for(i = 0; i < strlen(str); ++i)
     sprintf(buf + (e + 2) * i, "%s%02x", dlm[e], str[i] & 0x0FF);
   return buf;
@@ -116,6 +119,16 @@ MEM_STREAM *append_stream(MEM_STREAM *st, int n, char *str)
 MEM_STREAM *load_stream(char *str)
 {
   return append_stream(memstream_open(NULL, 0), 0, str);
+}
+
+MEM_STREAM *flush_chomp(MEM_STREAM *st, int n){
+  if(st){
+    if(!memstream_written(st, 1, NULL, NULL))
+      fprintf(stderr, "ERROR: flush_chomp memstream_written\a\x0D\x0A");
+    memstream_close(st);
+    if(n) st->buf[st->sz -= n] = '\0';
+  }
+  return st;
 }
 
 int flush_obj(PDF_OBJ *obj)
@@ -162,8 +175,7 @@ int create_obj(PDF_OBJ *obj)
 int create_xobj(PDF_OBJ *obj, MEM_STREAM *atr, MEM_STREAM *stream)
 {
   create_obj(obj);
-  fprintf(obj->atr->fp, "%s/Length %d\x0A",
-    atr ? atr->buf : "", strlen(stream->buf));
+  fprintf(obj->atr->fp, "%s/Length %d\x0A", atr ? atr->buf : "", stream->sz);
   obj->stream = stream;
   // must call flush_obj() later
   return 0;
@@ -187,7 +199,7 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
 {
   MEM_STREAM *st;
   char buf[MAX_BUF];
-  int sz, v, i, l;
+  int v, i, l;
   FILE *fp;
   if(!(fp = fopen(fn, "rb"))){
     fprintf(stderr, "file not found [%s]\a\x0D\x0A", fn);
@@ -204,10 +216,14 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
     return NULL;
   }
   v = *w * 2 * *b * *c / 8 + 2;
-  sz = *h * v + 1;
-  // fprintf(stdout, "%d, %d, %d, %d, (%d), (%d)\n", *w, *h, *c, *b, v, sz);
+#if 0
+  if(1){
+    int sz = *h * v + 1;
+    fprintf(stdout, "%d, %d, %d, %d, (%d), (%d)\n", *w, *h, *c, *b, v, sz);
+  }
+#endif
   if(!(st = memstream_open(NULL, 0))){
-    fprintf(stderr, "ERROR: image mstream_open (%08x)\a\x0D\x0A", sz);
+    fprintf(stderr, "ERROR: image mstream_open\a\x0D\x0A");
     fclose(fp);
     return NULL;
   }
@@ -223,13 +239,9 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
     if(buf[l-2] == '\x0D') buf[l-2] = '\0';
     append_stream(st, i == *h - 1 ? 0 : 2, buf);
   }
-  // 2, chomp()
-  append_stream(st, 0, ">");
-  if(!memstream_written(st, 1, NULL, NULL))
-    fprintf(stderr, "ERROR: image memstream_written\a\x0D\x0A");
-  memstream_close(st);
   fclose(fp);
-  return st;
+  append_stream(st, 0, ">");
+  return flush_chomp(st, 0); // written and close
 }
 
 int load_image(PDF_OBJ *obj, char *fn)
@@ -419,16 +431,6 @@ int out_trailer(FILE *fp, PDF_OBJ *root, PDF_OBJ *info)
   return 0;
 }
 
-MEM_STREAM *chomp(MEM_STREAM *st){
-  if(st){
-    if(!memstream_written(st, 1, NULL, NULL))
-      fprintf(stderr, "ERROR: chomp(st) memstream_written\a\x0D\x0A");
-    memstream_close(st);
-    st->buf[st->sz -= 2] = '\0';
-  }
-  return st;
-}
-
 MEM_STREAM *oo(MEM_STREAM *st, char *p){ return append_stream(st, 0, p); }
 MEM_STREAM *op(MEM_STREAM *st, char *p){ return append_stream(st, 2, p); }
 MEM_STREAM *bq(MEM_STREAM *st){ return op(st, "q"); }
@@ -441,29 +443,25 @@ MEM_STREAM *id(MEM_STREAM *st){ return op(st, "ID"); }
 
 MEM_STREAM *tf(MEM_STREAM *st, char *p, int sz)
 {
-  char buf[MAX_BUF];
-  sprintf(buf, "/%s %d %s", p, sz, "Tf");
-  return op(st, buf);
+  fprintf(st->fp, "/%s %d %s", p, sz, "Tf");
+  return op(st, "");
 }
 
 MEM_STREAM *tx(MEM_STREAM *st, int ah, char *p)
 {
   char *bk[] = {"()", "<>"};
   char q[MAX_BUF];
-  char buf[MAX_BUF];
-  if(ah) hexstr(q, 0, p);
-  sprintf(buf, "%c%s%c Tj", bk[ah][0], ah ? q : p, bk[ah][1]);
-  return op(st, buf);
+  if(ah) hexstr(q, sizeof(q), 0, p);
+  fprintf(st->fp, "%c%s%c Tj", bk[ah][0], ah ? q : p, bk[ah][1]);
+  return op(st, "");
 }
 
 MEM_STREAM *qm(MEM_STREAM *st, int x, int y, int cx, int cy, int q, char *t)
 {
   char *qc[] = {"cm", "Tm"};
-  char buf[MAX_BUF];
-  int l = 0;
-  l += sprintf(buf + l, "%d %d %d %d %d %d %s", x, 0, 0, y, cx, cy, qc[q]);
-  if(t) l += sprintf(buf + l, " %% %s", t);
-  return op(st, buf);
+  fprintf(st->fp, "%d %d %d %d %d %d %s", x, 0, 0, y, cx, cy, qc[q]);
+  if(t) fprintf(st->fp, " %% %s", t);
+  return op(st, "");
 }
 
 MEM_STREAM *cm(MEM_STREAM *st, int x, int y, int cx, int cy, char *t)
@@ -478,41 +476,37 @@ MEM_STREAM *Tm(MEM_STREAM *st, int x, int y, int cx, int cy, char *t)
 
 MEM_STREAM *rg(MEM_STREAM *st, int fS, float r, float g, float b)
 {
-  char buf[MAX_BUF];
-  sprintf(buf, "%3.1f %3.1f %3.1f %s", r, g, b, fS ? "RG" : "rg");
-  return op(st, buf);
+  fprintf(st->fp, "%3.1f %3.1f %3.1f %s", r, g, b, fS ? "RG" : "rg");
+  return op(st, "");
 }
 
 MEM_STREAM *val(MEM_STREAM *st, char *p, float v)
 {
-  char buf[MAX_BUF];
-  sprintf(buf, "%3.1f %s", v, p);
-  return op(st, buf);
+  fprintf(st->fp, "%3.1f %s", v, p);
+  return op(st, "");
 }
 
 MEM_STREAM *poly(MEM_STREAM *st, int fS, int n, int *p) // 2 * n
 {
-  char buf[MAX_BUF];
   int i, k;
   for(i = 0; i < n; ++i){
     k = i * 2;
-    sprintf(buf, "%d %d %s", p[k], p[k + 1], i ? "l" : "m");
-    op(st, buf);
+    fprintf(st->fp, "%d %d %s", p[k], p[k + 1], i ? "l" : "m");
+    op(st, "");
   }
   return op(st, fS ? "S" : "f");
 }
 
 MEM_STREAM *curve(MEM_STREAM *st, int fS, int n, int *p) // 2 * (1 + 3 * n)
 {
-  char buf[MAX_BUF];
   int i, j, k;
-  sprintf(buf, "%d %d %s", p[0], p[1], "m");
-  op(st, buf);
+  fprintf(st->fp, "%d %d %s", p[0], p[1], "m");
+  op(st, "");
   for(i = 0; i < n; ++i){
     for(j = 0; j < 3; ++j){
       k = (1 + i * 3 + j) * 2;
-      sprintf(buf, "%d %d ", p[k], p[k + 1]);
-      oo(st, buf);
+      fprintf(st->fp, "%d %d ", p[k], p[k + 1]);
+      oo(st, "");
     }
     op(st, "c");
   }
@@ -521,9 +515,8 @@ MEM_STREAM *curve(MEM_STREAM *st, int fS, int n, int *p) // 2 * (1 + 3 * n)
 
 MEM_STREAM *im(MEM_STREAM *st, char *p)
 {
-  char buf[MAX_BUF];
-  sprintf(buf, "/%s Do", p);
-  return op(st, buf);
+  fprintf(st->fp, "/%s Do", p);
+  return op(st, "");
 }
 
 MEM_STREAM *vs(MEM_STREAM *st, int f, char *p, ...) // f, p, (bnvs), t
@@ -534,21 +527,18 @@ MEM_STREAM *vs(MEM_STREAM *st, int f, char *p, ...) // f, p, (bnvs), t
   double v;
   char *s, *t;
   // f = 0: b(F/T), 1: n, 2: v, 3: s(add /), 4: s(pass through)
-  char buf[MAX_BUF];
-  int l = 0;
-  l += sprintf(buf + l, "/%s ", p);
+  fprintf(st->fp, "/%s ", p);
   switch(f){
-  case 0:{ b = va_arg(va, int);
-    l += sprintf(buf + l, "%s", b ? "true" : "false"); } break;
-  case 1:{ n = va_arg(va, int); l += sprintf(buf + l, "%d", n); } break;
-  case 2:{ v = va_arg(va, double); l += sprintf(buf + l, "%3.1f", v); } break;
-  case 3:{ s = va_arg(va, char *); l += sprintf(buf + l, "/%s", s); } break;
-  default:{ s = va_arg(va, char *); l += sprintf(buf + l, "%s", s); }
+  case 0:{ b = va_arg(va, int); fprintf(st->fp, b ? "true" : "false"); } break;
+  case 1:{ n = va_arg(va, int); fprintf(st->fp, "%d", n); } break;
+  case 2:{ v = va_arg(va, double); fprintf(st->fp, "%3.1f", v); } break;
+  case 3:{ s = va_arg(va, char *); fprintf(st->fp, "/%s", s); } break;
+  default:{ s = va_arg(va, char *); fprintf(st->fp, "%s", s); } // through % OK
   }
   t = va_arg(va, char *);
-  if(t) l += sprintf(buf + l, " %% %s", t);
+  if(t) fprintf(st->fp, " %% %s", t);
   va_end(va);
-  return op(st, buf);
+  return op(st, "");
 }
 
 MEM_STREAM *page_common()
@@ -561,6 +551,7 @@ MEM_STREAM *page_common()
   int f[] = {105, 74};
   int i;
   MEM_STREAM *st = memstream_open(NULL, 0);
+  if(!st) fprintf(stderr, "ERROR: page_common mstream_open\a\x0D\x0A");
   bq(st);
   cm(st, 1, 1, 421, 298, "1/72 (420, 296)");
   rg(st, 0, 0.0, 0.0, 0.5);
@@ -596,7 +587,7 @@ MEM_STREAM *page0()
   rg(st, 0, 0.8, 0.8, 0.0);
   tx(st, 1, TEXT_TEST);
   et(st);
-  return chomp(st);
+  return flush_chomp(st, 2);
 }
 
 MEM_STREAM *page1()
@@ -610,13 +601,13 @@ MEM_STREAM *page1()
   et(st);
   cm(st, 32, 64, 210, 512, "64/72 (420->26.25, 296->18.5) (296+216=512>32)");
   im(st, XOBJ_ALIAS);
-  return chomp(st);
+  return flush_chomp(st, 2);
 }
 
 MEM_STREAM *page2()
 {
   int w, h, c, b;
-  MEM_STREAM *ahx;
+  MEM_STREAM *ahx = load_AHx(FILE_MSK, &w, &h, &c, &b);
   MEM_STREAM *st = page_common();
   bt(st);
   tf(st, FONT_ALIAS, 24);
@@ -627,7 +618,6 @@ MEM_STREAM *page2()
   rg(st, 0, 0.8, 0.8, 0.0);
   tx(st, 1, TEXT_TEST);
   et(st);
-  ahx = load_AHx(FILE_MSK, &w, &h, &c, &b);
   cm(st, w, h, 210, 512, "16/72 (420->26.25, 296->18.5) (296+216=512>32)");
   rg(st, 0, 0.8, 0.4, 0.8);
   bi(st);
@@ -640,7 +630,7 @@ MEM_STREAM *page2()
   op(st, ahx->buf);
   ei(st);
   memstream_release(&ahx);
-  return chomp(st);
+  return flush_chomp(st, 2);
 }
 
 int cpdf(char *fname)
@@ -654,7 +644,7 @@ int cpdf(char *fname)
   init_xref(&head);
   create_resource(&resource);
 
-  hexstr(face, 1, FONT_NAME);
+  hexstr(face, sizeof(face), 1, FONT_NAME);
   create_metr(&metr, face, -150, -147, 1100, 853, FONT_STYLE);
   create_descf(&descf, &metr, face);
   create_font(&font, &descf, face, FONT_ENC);
