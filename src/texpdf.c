@@ -125,6 +125,13 @@ MEM_STREAM *load_stream(char *str)
   return append_stream(memstream_open(NULL, 0), 0, str);
 }
 
+MEM_STREAM *append_memstream(MEM_STREAM *st, int n, MEM_STREAM *m)
+{
+  if(!st || !m) return st;
+  fwrite(m->buf, 1, m->sz, st->fp);
+  return append_stream(st, n, "");
+}
+
 MEM_STREAM *flush_chomp(MEM_STREAM *st, int n){
   if(st){
     if(!memstream_written(st, 0, NULL, NULL))
@@ -631,8 +638,7 @@ MEM_STREAM *page2()
   vs(st, 3, "F", "AHx", "filter ASCII Hex decode");
   vs(st, 0, "IM", !0, "mask");
   id(st);
-  fwrite(ahx->buf, 1, ahx->sz, st->fp);
-  op(st, "");
+  append_memstream(st, 2, ahx);
   ei(st);
   memstream_release(&ahx);
   return flush_chomp(st, 2);
