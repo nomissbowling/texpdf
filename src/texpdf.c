@@ -96,16 +96,20 @@ int chk_ext(char *fn, char *ext)
   return strcmp(buf, ext);
 }
 
-char *hexstr(char *buf, int sz, int e, char *str)
+MEM_STREAM *hexstr(int e, char *str)
 {
   char *dlm[] = {"", "#", "\\x"};
   int i;
-  buf[0] = '\0';
-  if((e + 2) * strlen(str) >= sz)
-    fprintf(stderr, "ERROR: hexstr (%d >= %d)\a\x0D\x0A", strlen(str), sz);
-  for(i = 0; i < strlen(str); ++i)
-    sprintf(buf + (e + 2) * i, "%s%02x", dlm[e], str[i] & 0x0FF);
-  return buf;
+  MEM_STREAM *m = memstream_open(NULL, 0);
+  if(!m) fprintf(stderr, "ERROR: hexstr memstream_open\a\x0D\x0A");
+  else{
+    for(i = 0; i < strlen(str); ++i)
+      fprintf(m->fp, "%s%02x", dlm[e], str[i] & 0x0FF);
+    if(!memstream_written(m, 1, NULL, NULL))
+      fprintf(stderr, "ERROR: hexstr memstream_written\a\x0D\x0A");
+    memstream_close(m);
+  }
+  return m;
 }
 
 MEM_STREAM *append_stream(MEM_STREAM *st, int n, char *str)
@@ -123,7 +127,7 @@ MEM_STREAM *load_stream(char *str)
 
 MEM_STREAM *flush_chomp(MEM_STREAM *st, int n){
   if(st){
-    if(!memstream_written(st, 1, NULL, NULL))
+    if(!memstream_written(st, 0, NULL, NULL))
       fprintf(stderr, "ERROR: flush_chomp memstream_written\a\x0D\x0A");
     memstream_close(st);
     if(n) st->buf[st->sz -= n] = '\0';
@@ -450,9 +454,9 @@ MEM_STREAM *tf(MEM_STREAM *st, char *p, int sz)
 MEM_STREAM *tx(MEM_STREAM *st, int ah, char *p)
 {
   char *bk[] = {"()", "<>"};
-  char q[MAX_BUF];
-  if(ah) hexstr(q, sizeof(q), 0, p);
-  fprintf(st->fp, "%c%s%c Tj", bk[ah][0], ah ? q : p, bk[ah][1]);
+  MEM_STREAM *m = hexstr(0, p);
+  fprintf(st->fp, "%c%s%c Tj", bk[ah][0], ah ? m->buf : p, bk[ah][1]);
+  memstream_release(&m);
   return op(st, "");
 }
 
@@ -627,7 +631,8 @@ MEM_STREAM *page2()
   vs(st, 3, "F", "AHx", "filter ASCII Hex decode");
   vs(st, 0, "IM", !0, "mask");
   id(st);
-  op(st, ahx->buf);
+  fwrite(ahx->buf, 1, ahx->sz, st->fp);
+  op(st, "");
   ei(st);
   memstream_release(&ahx);
   return flush_chomp(st, 2);
@@ -635,20 +640,20 @@ MEM_STREAM *page2()
 
 int cpdf(char *fname)
 {
-  char face[MAX_BUF];
   PDF_OBJ head, resource, metr, descf, font, xobj, pages, root, info;
   PDF_OBJ contents[3], page[3];
   int i, xref_offset;
   FILE *ofp = NULL;
+  MEM_STREAM *face = hexstr(1, FONT_NAME);
 
   init_xref(&head);
   create_resource(&resource);
 
-  hexstr(face, sizeof(face), 1, FONT_NAME);
-  create_metr(&metr, face, -150, -147, 1100, 853, FONT_STYLE);
-  create_descf(&descf, &metr, face);
-  create_font(&font, &descf, face, FONT_ENC);
+  create_metr(&metr, face->buf, -150, -147, 1100, 853, FONT_STYLE);
+  create_descf(&descf, &metr, face->buf);
+  create_font(&font, &descf, face->buf, FONT_ENC);
   add_resource(&resource, RES_FONT, FONT_ALIAS, &font);
+  memstream_release(&face);
 
   create_contents(&contents[0], page0());
   create_page(&page[0], &resource, &contents[0]);
