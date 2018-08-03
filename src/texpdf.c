@@ -56,9 +56,6 @@
 #define FILE_MSK "_texpdf_MSK.axt"
 #define TEXT_TEST "\x96\xbe\x92\xa9\x91\xcc\x89\x69" // 明朝体永
 
-#define RES_XOBJ "XObject"
-#define RES_FONT "Font"
-
 //
 
 #define EXT_PDF ".pdf"

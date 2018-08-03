@@ -21,6 +21,9 @@
 #define PDF_FOOT ("%%EOF"LN)
 #define PDF_IDX ("%010d %05d %c"LN)
 
+#define RES_XOBJ "XObject"
+#define RES_FONT "Font"
+
 #define MAX_BUF 1024
 #define MAX_IDX_LST 500
 
