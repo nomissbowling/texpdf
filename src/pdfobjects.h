@@ -77,4 +77,6 @@ int out_xref(FILE *fp);
 int out_trailer(FILE *fp, PDF_OBJ *root, PDF_OBJ *info);
 int out_foot(FILE *fp, int offset);
 
+int out_pdf(char *fname, PDF_OBJ *info, PDF_OBJ *root);
+
 #endif // __PDFOBJECTS_H__

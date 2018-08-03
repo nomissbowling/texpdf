@@ -345,3 +345,20 @@ int out_foot(FILE *fp, int offset)
   fputs(PDF_FOOT, fp);
   return 0;
 }
+
+int out_pdf(char *fname, PDF_OBJ *info, PDF_OBJ *root)
+{
+  int xref_offset;
+  FILE *ofp = fopen(fname, "wb");
+  if(!ofp){
+    fprintf(stderr, "cannot output pdf: %s" ALN, fname);
+    return -1;
+  }
+  out_head(ofp);
+  out_objects(ofp);
+  xref_offset = out_xref(ofp);
+  out_trailer(ofp, root, info);
+  out_foot(ofp, xref_offset);
+  fclose(ofp);
+  return 0;
+}

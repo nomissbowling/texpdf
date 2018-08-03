@@ -5,25 +5,6 @@
   > gcc -m32 -o texpdf texpdf.c pdftx.c pdfobjects.c memstream.c (to 32 bit OK)
   > gcc -o texpdf texpdf.c pdftx.c pdfobjects.c memstream.c (to 64 bit OK)
   > texpdf _texpdf_out.pdf
-
-  landscape mm  72          96          300         600         1200
-
-  A0 1189  841  3370 2383   4494 3178   14043  9930 28087 19860 56173 39720
-  A1  841  594  2383 1685   3178 2247    9930  7022 19860 14043 39720 28087
-  A2  594  420  1685 1192   2247 1589    7022  4965 14043  9930 28087 19860
-  A3  420  297  1192  843 * 1589 1123    4965  3511  9930  7022 19860 14043
-  A4  297  210 * 843  596 * 1123  794    3511  2483  7022  4965 14043  9930
-  A5  210  148   596  421    794  562    2483  1755  4965  3511  9930  7022
-  A6  148  105   421  298    562  397    1755  1241  3511  2483  7022  4965
-  A7  105   74   298  211    397  281    1241   878  2483  1755  4965  3511
-
-  B0 1414 1000  4008 2835   5344 3780   16701 11811 33402 23622 66803 47244
-  B1 1000  707  2835 2004   3780 2672   11811  8350 23622 16701 47244 33402
-  B2  707  500  2004 1417   2672 1890    8350  5906 16701 11811 33402 23622
-  B3  500  353  1417 1002 * 1890 1336    5906  4175 11811  8350 23622 16701
-  B4  353  250  1002  709   1336  945    4175  2953  8350  5906 16701 11811
-  B5  250  176   709  501    945  668    2953  2088  5906  4175 11811  8350
-  B6  176  125   501  354    668  472    2088  1476  4175  2953  8350  5906
 */
 
 #include <stdio.h>
@@ -167,8 +148,6 @@ int cpdf(char *fname)
 {
   PDF_OBJ head, resource, metr, descf, font, xobj, pages, root, info;
   PDF_OBJ contents[3], page[3];
-  int i, xref_offset;
-  FILE *ofp = NULL;
   MEM_STREAM *face = hexstr(1, FONT_NAME);
 
   init_xref(&head);
@@ -195,17 +174,7 @@ int cpdf(char *fname)
   create_pages(&pages, page, sizeof(page) / sizeof(page[0]), 0, 0, 842, 595);
   create_root(&root, &pages);
   create_info(&info, INF_CREATIONDATE, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
-
-  if((ofp = fopen(fname, "wb")) == NULL){
-    fprintf(stderr, "cannot output pdf: %s\n", fname);
-    return -1;
-  }
-  out_head(ofp);
-  out_objects(ofp);
-  xref_offset = out_xref(ofp);
-  out_trailer(ofp, &root, &info);
-  out_foot(ofp, xref_offset);
-  fclose(ofp);
+  out_pdf(fname, &info, &root);
 
   fprintf(stdout, "done. [%s] (%08x)\n", fname, sizeof(size_t));
   return 0;
