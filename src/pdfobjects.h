@@ -43,11 +43,6 @@ typedef struct _PDF_XREF {
 
 //
 
-extern PDF_XREF XREF[MAX_IDX_LST];
-extern int XREF_MAX;
-
-//
-
 MEM_STREAM *append_stream(MEM_STREAM *st, int n, char *str, int sz);
 MEM_STREAM *load_stream(char *str);
 MEM_STREAM *flush_chomp(MEM_STREAM *st, int n);

@@ -4,8 +4,8 @@
 
 #include "pdfobjects.h"
 
-PDF_XREF XREF[MAX_IDX_LST];
-int XREF_MAX = 0;
+static PDF_XREF XREF[MAX_IDX_LST];
+static int XREF_MAX = 0;
 
 MEM_STREAM *append_stream(MEM_STREAM *st, int n, char *str, int sz)
 {
