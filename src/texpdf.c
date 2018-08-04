@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <time.h>
 #include "memstream.h"
 #include "pdfobjects.h"
 #include "pdftx.h"
@@ -52,7 +53,7 @@ int chk_ext(char *fn, char *ext)
   return strcmp(buf, ext);
 }
 
-MEM_STREAM *page_common()
+MEM_STREAM *page_common(char *ts)
 {
   int a[] = {1, 1, 420, 1, 420, 296, 1, 296};
   int b[] = {-1, 1, -420, 1, -420, 296, -1, 296};
@@ -82,12 +83,20 @@ MEM_STREAM *page_common()
     e[i * 2] += f[0], e[i * 2 + 1] += f[1];
   curve(st, 1, (sizeof(e) / sizeof(e[0]) / 2 - 1) / 3, e);
   eQ(st);
+  if(ts){
+    bt(st);
+    tf(st, FONT_ALIAS, 12);
+    Tm(st, 1, 1, 100, 300, "1/72 210, 148");
+    rg(st, 0, 0.0, 0.8, 0.8);
+    tx(st, 0, ts);
+    et(st);
+  }
   return st;
 }
 
-MEM_STREAM *page0()
+MEM_STREAM *page0(char *ts)
 {
-  MEM_STREAM *st = page_common();
+  MEM_STREAM *st = page_common(ts);
   bt(st);
   cm(st, 2, 2, 421, 298, "2/72 (210, 148)");
   tf(st, FONT_ALIAS, 24);
@@ -101,9 +110,9 @@ MEM_STREAM *page0()
   return flush_chomp(st, 2);
 }
 
-MEM_STREAM *page1()
+MEM_STREAM *page1(char *ts)
 {
-  MEM_STREAM *st = page_common();
+  MEM_STREAM *st = page_common(ts);
   bt(st);
   tf(st, FONT_ALIAS, 24);
   Tm(st, 2, 2, 420, 296, "2/72 (210, 148)");
@@ -115,11 +124,11 @@ MEM_STREAM *page1()
   return flush_chomp(st, 2);
 }
 
-MEM_STREAM *page2()
+MEM_STREAM *page2(char *ts)
 {
   int w, h, c, b;
   MEM_STREAM *ahx = load_AHx(FILE_MSK, &w, &h, &c, &b);
-  MEM_STREAM *st = page_common();
+  MEM_STREAM *st = page_common(ts);
   bt(st);
   tf(st, FONT_ALIAS, 24);
   Tm(st, 1, 1, 421, 298, "1/72 (210, 148)");
@@ -146,13 +155,31 @@ MEM_STREAM *page2()
 
 int cpdf(char *fname)
 {
+  char *ts;
   PDF_CTX *ctx;
   PDF_OBJ metr, descf, font, xobj;
   PDF_OBJ contents[3], page[3];
   MEM_STREAM *face = hexstr(1, FONT_NAME);
+  MEM_STREAM *tms = memstream_open(NULL, 0);
+
+  if(tms){
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    fprintf(tms->fp, "%04d%02d%02d%02d%02d%02d%c%02d'%02d'",
+      tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+      tm->tm_hour, tm->tm_min, tm->tm_sec, '+', 9, 0);
+    if(!memstream_written(tms, 1, NULL, NULL))
+      fprintf(stderr, "ERROR: timestamp"ALN);
+    memstream_close(tms);
+  }
+#if 0
+  ts = tms ? tms->buf : INF_CREATIONDATE;
+#else
+  ts = INF_CREATIONDATE;
+#endif
 
   if(!(ctx = init_pdf())){
-    fprintf(stderr, "ERROR: init_xref"ALN);
+    fprintf(stderr, "ERROR: init_pdf"ALN);
     return -1;
   }
 
@@ -162,23 +189,24 @@ int cpdf(char *fname)
   add_resource(&ctx->resource, RES_FONT, FONT_ALIAS, &font);
   memstream_release(&face);
 
-  create_contents(ctx, &contents[0], page0());
+  create_contents(ctx, &contents[0], page0(ts));
   create_page(ctx, &page[0], &ctx->resource, &contents[0]);
 
   load_image(ctx, &xobj, FILE_IMG0);
   add_resource(&ctx->resource, RES_XOBJ, XOBJ_ALIAS, &xobj);
-  create_contents(ctx, &contents[1], page1());
+  create_contents(ctx, &contents[1], page1(ts));
   create_page(ctx, &page[1], &ctx->resource, &contents[1]);
 
-  create_contents(ctx, &contents[2], page2());
+  create_contents(ctx, &contents[2], page2(ts));
   create_page(ctx, &page[2], &ctx->resource, &contents[2]);
 
   merge_pdf(ctx, page, sizeof(page) / sizeof(page[0]), 0, 0, 842, 595,
-    INF_CREATIONDATE, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
+    ts, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
   out_pdf(fname, ctx);
   release_pdf(&ctx);
 
-  fprintf(stdout, "done. [%s] (%08x)"LN, fname, sizeof(size_t));
+  fprintf(stdout, "done. [%s] (%08x) %s"LN, fname, sizeof(size_t), ts);
+  if(tms) memstream_release(&tms);
   return 0;
 }
 
