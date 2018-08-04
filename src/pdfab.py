@@ -31,7 +31,7 @@ def pdfab(ab):
   print(tuple(map(int, map(round, ab)))) # tuple(map(int, np.round(aab)))
   ratio = 25.4 # 72 * 1189 / 3370
   dpi = (ratio, 72, 96, 300, 600, 1200)
-  C, R = np.meshgrid(np.array(dpi) / ratio, [1. / (R2**r) for r in range(8)])
+  C, R = np.meshgrid(np.array(dpi) / ratio, R2 ** -np.arange(8))
   for r in C * R:
     for c in r:
       v = tuple(map(int, np.round(c * aab)))
