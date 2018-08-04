@@ -9,12 +9,12 @@ MEM_STREAM *hexstr(int e, char *str)
   char *dlm[] = {"", "#", "\\x"};
   int i;
   MEM_STREAM *m = memstream_open(NULL, 0);
-  if(!m) fprintf(stderr, "ERROR: hexstr memstream_open" ALN);
+  if(!m) fprintf(stderr, "ERROR: hexstr memstream_open"ALN);
   else{
     for(i = 0; i < strlen(str); ++i)
       fprintf(m->fp, "%s%02x", dlm[e], str[i] & 0x0FF);
     if(!memstream_written(m, 1, NULL, NULL))
-      fprintf(stderr, "ERROR: hexstr memstream_written" ALN);
+      fprintf(stderr, "ERROR: hexstr memstream_written"ALN);
     memstream_close(m);
   }
   return m;

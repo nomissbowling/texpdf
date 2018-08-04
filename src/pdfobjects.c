@@ -4,9 +4,6 @@
 
 #include "pdfobjects.h"
 
-static PDF_XREF XREF[MAX_IDX_LST];
-static int XREF_MAX = 0;
-
 MEM_STREAM *append_stream(MEM_STREAM *st, int n, char *str, int sz)
 {
   static char *e[] = {"", LF, LN};
@@ -26,7 +23,7 @@ MEM_STREAM *flush_chomp(MEM_STREAM *st, int n)
 {
   if(st){
     if(!memstream_written(st, 0, NULL, NULL))
-      fprintf(stderr, "ERROR: flush_chomp memstream_written" ALN);
+      fprintf(stderr, "ERROR: flush_chomp memstream_written"ALN);
     memstream_close(st);
     if(n) st->buf[st->sz -= n] = '\0';
   }
@@ -37,55 +34,69 @@ int flush_obj(PDF_OBJ *obj)
 {
   if(obj->atr){
     if(!memstream_written(obj->atr, 1, NULL, NULL))
-      fprintf(stderr, "ERROR: obj->atr memstream_written" ALN);
+      fprintf(stderr, "ERROR: obj->atr memstream_written"ALN);
     memstream_close(obj->atr);
   }
   return 0;
 }
 
-int init_xref(PDF_OBJ *obj)
+PDF_CTX *init_pdf()
 {
-  obj->id = XREF_MAX++;
+  PDF_OBJ *obj;
+  PDF_CTX *ctx = (PDF_CTX *)malloc(sizeof(PDF_CTX));
+  if(!ctx) return NULL;
+  ctx->XREF_MAX = 0;
+  obj = &ctx->head;
+  obj->id = ctx->XREF_MAX++;
   obj->gen = 0;
   obj->atr = NULL;
   obj->stream = NULL;
-  XREF[0].obj = obj;
-  XREF[0].len = strlen(PDF_HEAD);
-  XREF[0].sub = 65535;
-  XREF[0].kwd = 'f';
+  ctx->XREF[0].obj = obj;
+  ctx->XREF[0].len = strlen(PDF_HEAD);
+  ctx->XREF[0].sub = 65535;
+  ctx->XREF[0].kwd = 'f';
+  create_resource(ctx, &ctx->resource);
+  return ctx;
+}
+
+int release_pdf(PDF_CTX **ctx)
+{
+  if(ctx && *ctx){ free(*ctx); *ctx = NULL; };
   return 0;
 }
 
-int create_obj(PDF_OBJ *obj)
+int create_obj(PDF_CTX *ctx, PDF_OBJ *obj)
 {
-  obj->id = XREF_MAX++;
+  obj->id = ctx->XREF_MAX++;
   obj->gen = 0;
   obj->atr = memstream_open(NULL, 0);
   obj->stream = NULL;
-  XREF[obj->id].obj = obj;
-  XREF[obj->id].len = 0;
-  XREF[obj->id].sub = 0;
-  XREF[obj->id].kwd = 'n';
-  if(XREF_MAX >= MAX_IDX_LST)
-    fprintf(stderr, "overflow obj->id" ALN);
+  ctx->XREF[obj->id].obj = obj;
+  ctx->XREF[obj->id].len = 0;
+  ctx->XREF[obj->id].sub = 0;
+  ctx->XREF[obj->id].kwd = 'n';
+  if(ctx->XREF_MAX >= MAX_IDX_LST)
+    fprintf(stderr, "overflow obj->id"ALN);
   if(!obj->atr)
-    fprintf(stderr, "ERROR: obj->atr memstream_open" ALN);
+    fprintf(stderr, "ERROR: obj->atr memstream_open"ALN);
   // must call flush_obj() later
   return 0;
 }
 
-int create_xobj(PDF_OBJ *obj, MEM_STREAM *atr, MEM_STREAM *stream)
+int create_xobj(PDF_CTX *ctx, PDF_OBJ *obj,
+  MEM_STREAM *atr, MEM_STREAM *stream)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "%s/Length %d"LF, atr ? atr->buf : "", stream->sz);
   obj->stream = stream;
   // must call flush_obj() later
   return 0;
 }
 
-int create_image(PDF_OBJ *obj, int w, int h, int bpc, MEM_STREAM *stream)
+int create_image(PDF_CTX *ctx, PDF_OBJ *obj,
+  int w, int h, int bpc, MEM_STREAM *stream)
 {
-  create_xobj(obj, NULL, stream);
+  create_xobj(ctx, obj, NULL, stream);
   fprintf(obj->atr->fp, "/Type /XObject"LF);
   fprintf(obj->atr->fp, "/Subtype /Image"LF);
   fprintf(obj->atr->fp, "/Width %d"LF, w);
@@ -104,16 +115,16 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
   int v, i, l;
   FILE *fp;
   if(!(fp = fopen(fn, "rb"))){
-    fprintf(stderr, "file not found [%s]" ALN, fn);
+    fprintf(stderr, "file not found [%s]"ALN, fn);
     return NULL;
   }
   if(!fgets(buf, sizeof(buf), fp)){
-    fprintf(stderr, "unexpected EOF [%s] (0)" ALN, fn);
+    fprintf(stderr, "unexpected EOF [%s] (0)"ALN, fn);
     fclose(fp);
     return NULL;
   }
   if(sscanf(buf, "%d %d %d %d", w, h, c, b) != 4){
-    fprintf(stderr, "not found (W H C B) [%s] (0)" ALN, fn);
+    fprintf(stderr, "not found (W H C B) [%s] (0)"ALN, fn);
     fclose(fp);
     return NULL;
   }
@@ -121,18 +132,18 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
 #if 0
   if(1){
     int sz = *h * v + 1;
-    fprintf(stdout, "%d, %d, %d, %d, (%d), (%d)\n", *w, *h, *c, *b, v, sz);
+    fprintf(stdout, "%d, %d, %d, %d, (%d), (%d)"ALN, *w, *h, *c, *b, v, sz);
   }
 #endif
   if(!(st = memstream_open(NULL, 0))){
-    fprintf(stderr, "ERROR: image mstream_open" ALN);
+    fprintf(stderr, "ERROR: image mstream_open"ALN);
     fclose(fp);
     return NULL;
   }
   for(i = 0; i < *h; ++i){
     fgets(buf, sizeof(buf), fp);
     if((l = strlen(buf)) < v - 2){
-      fprintf(stderr, "too short line length [%s] (%d)" ALN, fn, i + 1);
+      fprintf(stderr, "too short line length [%s] (%d)"ALN, fn, i + 1);
       fclose(fp);
       memstream_release(&st);
       return NULL;
@@ -146,16 +157,17 @@ MEM_STREAM *load_AHx(char *fn, int *w, int *h, int *c, int *b)
   return flush_chomp(st, 0); // written and close
 }
 
-int load_image(PDF_OBJ *obj, char *fn)
+int load_image(PDF_CTX *ctx, PDF_OBJ *obj, char *fn)
 {
   int w, h, c, b;
-  create_image(obj, w, h, c, load_AHx(fn, &w, &h, &c, &b)); // right args first
+  create_image(ctx, obj, w, h, c, load_AHx(fn, &w, &h, &c, &b)); // right args first
   return 0;
 }
 
-int create_metr(PDF_OBJ *obj, char *face, int a, int b, int c, int d, char *st)
+int create_metr(PDF_CTX *ctx, PDF_OBJ *obj,
+  char *face, int a, int b, int c, int d, char *st)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /FontDescriptor"LF);
   fprintf(obj->atr->fp, "/FontName /%s"LF, face);
   fprintf(obj->atr->fp, "/Flags %d"LF, 39);
@@ -176,9 +188,9 @@ int create_metr(PDF_OBJ *obj, char *face, int a, int b, int c, int d, char *st)
   return 0;
 }
 
-int create_descf(PDF_OBJ *obj, PDF_OBJ *m, char *face)
+int create_descf(PDF_CTX *ctx, PDF_OBJ *obj, PDF_OBJ *m, char *face)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /Font"LF);
   fprintf(obj->atr->fp, "/Subtype /%s"LF, "CIDFontType2");
   fprintf(obj->atr->fp, "/BaseFont /%s"LF, face);
@@ -199,9 +211,9 @@ int create_descf(PDF_OBJ *obj, PDF_OBJ *m, char *face)
   return 0;
 }
 
-int create_font(PDF_OBJ *obj, PDF_OBJ *d, char *face, char *enc)
+int create_font(PDF_CTX *ctx, PDF_OBJ *obj, PDF_OBJ *d, char *face, char *enc)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /Font"LF);
   fprintf(obj->atr->fp, "/Subtype /%s"LF, "Type0");
   fprintf(obj->atr->fp, "/BaseFont /%s"LF, face);
@@ -211,9 +223,9 @@ int create_font(PDF_OBJ *obj, PDF_OBJ *d, char *face, char *enc)
   return 0;
 }
 
-int create_resource(PDF_OBJ *obj)
+int create_resource(PDF_CTX *ctx, PDF_OBJ *obj)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/ProcSet [ /PDF /Text ]"LF);
   // must call flush_obj() later
   return 0;
@@ -226,16 +238,16 @@ int add_resource(PDF_OBJ *obj, char *rn, char *ra, PDF_OBJ *r)
   return 0;
 }
 
-int create_contents(PDF_OBJ *obj, MEM_STREAM *stream)
+int create_contents(PDF_CTX *ctx, PDF_OBJ *obj, MEM_STREAM *stream)
 {
-  create_xobj(obj, NULL, stream);
+  create_xobj(ctx, obj, NULL, stream);
   flush_obj(obj);
   return 0;
 }
 
-int create_page(PDF_OBJ *obj, PDF_OBJ *res, PDF_OBJ *ct)
+int create_page(PDF_CTX *ctx, PDF_OBJ *obj, PDF_OBJ *res, PDF_OBJ *ct)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /Page"LF);
   fprintf(obj->atr->fp, "/Resources %d %d R"LF, res->id, res->gen);
   fprintf(obj->atr->fp, "/Contents %d %d R"LF, ct->id, ct->gen);
@@ -250,9 +262,10 @@ int set_parent(PDF_OBJ *obj, PDF_OBJ *pt)
   return 0;
 }
 
-int create_pages(PDF_OBJ *obj, PDF_OBJ *p, int cnt, int x, int y, int w, int h)
+int create_pages(PDF_CTX *ctx, PDF_OBJ *obj,
+  PDF_OBJ *p, int cnt, int x, int y, int w, int h)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /Pages"LF);
   fprintf(obj->atr->fp, "/Kids [");
   for(int i = 0; i < cnt; ++i){
@@ -266,18 +279,19 @@ int create_pages(PDF_OBJ *obj, PDF_OBJ *p, int cnt, int x, int y, int w, int h)
   return 0;
 }
 
-int create_root(PDF_OBJ *obj, PDF_OBJ *pgs)
+int create_root(PDF_CTX *ctx, PDF_OBJ *obj, PDF_OBJ *pgs)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/Type /Catalog"LF);
   fprintf(obj->atr->fp, "/Pages %d %d R"LF, pgs->id, pgs->gen);
   flush_obj(obj);
   return 0;
 }
 
-int create_info(PDF_OBJ *obj, char *dt, char *ttl, char *ath, char *prd)
+int create_info(PDF_CTX *ctx, PDF_OBJ *obj,
+  char *dt, char *ttl, char *ath, char *prd)
 {
-  create_obj(obj);
+  create_obj(ctx, obj);
   fprintf(obj->atr->fp, "/CreationDate (D:%s)"LF, dt);
   fprintf(obj->atr->fp, "/Title (%s)"LF, ttl);
   fprintf(obj->atr->fp, "/Author (%s)"LF, ath);
@@ -292,49 +306,50 @@ int out_head(FILE *fp)
   return 0;
 }
 
-int out_objects(FILE *fp)
+int out_objects(FILE *fp, PDF_CTX *ctx)
 {
   char *p;
   int i, l;
-  for(i = 1; i < XREF_MAX; ++i){
-    l = fprintf(fp, "%d %d obj"LN, XREF[i].obj->id, XREF[i].obj->gen);
+  for(i = 1; i < ctx->XREF_MAX; ++i){
+    PDF_OBJ *obj = ctx->XREF[i].obj;
+    l = fprintf(fp, "%d %d obj"LN, obj->id, obj->gen);
     l += fprintf(fp, "<<"LN);
-    if(XREF[i].obj->atr){
-      for(p = XREF[i].obj->atr->buf; p = strtok(p, LF); p += strlen(p) + 1)
+    if(obj->atr){
+      for(p = obj->atr->buf; p = strtok(p, LF); p += strlen(p) + 1)
         l += fprintf(fp, " %s"LN, p);
-      memstream_release(&XREF[i].obj->atr);
+      memstream_release(&obj->atr);
     }
     l += fprintf(fp, ">>"LN);
-    if(XREF[i].obj->stream){
+    if(obj->stream){
       l += fprintf(fp, "stream"LN);
-      l += fwrite(XREF[i].obj->stream->buf, 1, XREF[i].obj->stream->sz, fp);
+      l += fwrite(obj->stream->buf, 1, obj->stream->sz, fp);
       l += fprintf(fp, LN);
       l += fprintf(fp, "endstream"LN);
-      memstream_release(&XREF[i].obj->stream);
+      memstream_release(&obj->stream);
     }
     l += fprintf(fp, "endobj"LN LN);
-    XREF[i].len = l;
+    ctx->XREF[i].len = l;
   }
   return 0;
 }
 
-int out_xref(FILE *fp)
+int out_xref(FILE *fp, PDF_CTX *ctx)
 {
   int i, offset = 0;
-  fprintf(fp, "xref"LN"%d %d"LN, 0, XREF_MAX);
-  for(i = 0; i < XREF_MAX; ++i){
-    fprintf(fp, PDF_IDX, offset, XREF[i].sub, XREF[i].kwd);
-    offset += XREF[i].len;
+  fprintf(fp, "xref"LN"%d %d"LN, 0, ctx->XREF_MAX);
+  for(i = 0; i < ctx->XREF_MAX; ++i){
+    fprintf(fp, PDF_IDX, offset, ctx->XREF[i].sub, ctx->XREF[i].kwd);
+    offset += ctx->XREF[i].len;
   }
   return offset;
 }
 
-int out_trailer(FILE *fp, PDF_OBJ *root, PDF_OBJ *info)
+int out_trailer(FILE *fp, PDF_CTX *ctx)
 {
   fprintf(fp, "trailer"LN"<<"LN);
-  fprintf(fp, " /Root %d %d R"LN, root->id, root->gen);
-  fprintf(fp, " /Info %d %d R"LN, info->id, info->gen);
-  fprintf(fp, " /Size %d"LN, XREF_MAX);
+  fprintf(fp, " /Root %d %d R"LN, ctx->root.id, ctx->root.gen);
+  fprintf(fp, " /Info %d %d R"LN, ctx->info.id, ctx->info.gen);
+  fprintf(fp, " /Size %d"LN, ctx->XREF_MAX);
   fprintf(fp, ">>"LN);
   return 0;
 }
@@ -346,18 +361,28 @@ int out_foot(FILE *fp, int offset)
   return 0;
 }
 
-int out_pdf(char *fname, PDF_OBJ *info, PDF_OBJ *root)
+int merge_pdf(PDF_CTX *ctx, PDF_OBJ *p, int cnt, int x, int y, int w, int h,
+  char *dt, char *ttl, char *ath, char *prd)
+{
+  flush_obj(&ctx->resource);
+  create_pages(ctx, &ctx->pages, p, cnt, x, y, w, h);
+  create_root(ctx, &ctx->root, &ctx->pages);
+  create_info(ctx, &ctx->info, dt, ttl, ath, prd);
+  return 0;
+}
+
+int out_pdf(char *fname, PDF_CTX *ctx)
 {
   int xref_offset;
   FILE *ofp = fopen(fname, "wb");
   if(!ofp){
-    fprintf(stderr, "cannot output pdf: %s" ALN, fname);
+    fprintf(stderr, "cannot output pdf: %s"ALN, fname);
     return -1;
   }
   out_head(ofp);
-  out_objects(ofp);
-  xref_offset = out_xref(ofp);
-  out_trailer(ofp, root, info);
+  out_objects(ofp, ctx);
+  xref_offset = out_xref(ofp, ctx);
+  out_trailer(ofp, ctx);
   out_foot(ofp, xref_offset);
   fclose(ofp);
   return 0;

@@ -62,7 +62,7 @@ MEM_STREAM *page_common()
   int f[] = {105, 74};
   int i;
   MEM_STREAM *st = memstream_open(NULL, 0);
-  if(!st) fprintf(stderr, "ERROR: page_common mstream_open" ALN);
+  if(!st) fprintf(stderr, "ERROR: page_common mstream_open"ALN);
   bq(st);
   cm(st, 1, 1, 421, 298, "1/72 (420, 296)");
   rg(st, 0, 0.0, 0.0, 0.5);
@@ -146,37 +146,39 @@ MEM_STREAM *page2()
 
 int cpdf(char *fname)
 {
-  PDF_OBJ head, resource, metr, descf, font, xobj, pages, root, info;
+  PDF_CTX *ctx;
+  PDF_OBJ metr, descf, font, xobj;
   PDF_OBJ contents[3], page[3];
   MEM_STREAM *face = hexstr(1, FONT_NAME);
 
-  init_xref(&head);
-  create_resource(&resource);
+  if(!(ctx = init_pdf())){
+    fprintf(stderr, "ERROR: init_xref"ALN);
+    return -1;
+  }
 
-  create_metr(&metr, face->buf, -150, -147, 1100, 853, FONT_STYLE);
-  create_descf(&descf, &metr, face->buf);
-  create_font(&font, &descf, face->buf, FONT_ENC);
-  add_resource(&resource, RES_FONT, FONT_ALIAS, &font);
+  create_metr(ctx, &metr, face->buf, -150, -147, 1100, 853, FONT_STYLE);
+  create_descf(ctx, &descf, &metr, face->buf);
+  create_font(ctx, &font, &descf, face->buf, FONT_ENC);
+  add_resource(&ctx->resource, RES_FONT, FONT_ALIAS, &font);
   memstream_release(&face);
 
-  create_contents(&contents[0], page0());
-  create_page(&page[0], &resource, &contents[0]);
+  create_contents(ctx, &contents[0], page0());
+  create_page(ctx, &page[0], &ctx->resource, &contents[0]);
 
-  load_image(&xobj, FILE_IMG0);
-  add_resource(&resource, RES_XOBJ, XOBJ_ALIAS, &xobj);
-  create_contents(&contents[1], page1());
-  create_page(&page[1], &resource, &contents[1]);
+  load_image(ctx, &xobj, FILE_IMG0);
+  add_resource(&ctx->resource, RES_XOBJ, XOBJ_ALIAS, &xobj);
+  create_contents(ctx, &contents[1], page1());
+  create_page(ctx, &page[1], &ctx->resource, &contents[1]);
 
-  create_contents(&contents[2], page2());
-  create_page(&page[2], &resource, &contents[2]);
+  create_contents(ctx, &contents[2], page2());
+  create_page(ctx, &page[2], &ctx->resource, &contents[2]);
 
-  flush_obj(&resource);
-  create_pages(&pages, page, sizeof(page) / sizeof(page[0]), 0, 0, 842, 595);
-  create_root(&root, &pages);
-  create_info(&info, INF_CREATIONDATE, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
-  out_pdf(fname, &info, &root);
+  merge_pdf(ctx, page, sizeof(page) / sizeof(page[0]), 0, 0, 842, 595,
+    INF_CREATIONDATE, INF_TITLE, INF_AUTHOR, INF_PRODUCER);
+  out_pdf(fname, ctx);
+  release_pdf(&ctx);
 
-  fprintf(stdout, "done. [%s] (%08x)\n", fname, sizeof(size_t));
+  fprintf(stdout, "done. [%s] (%08x)"LN, fname, sizeof(size_t));
   return 0;
 }
 
