@@ -2,6 +2,7 @@
   PDF
 
   texpdf.c
+  > mingw32-make -f makefile.tdmgcc64
   > gcc -m32 -o texpdf texpdf.c pdftx.c pdfobjects.c memstream.c (to 32 bit OK)
   > gcc -o texpdf texpdf.c pdftx.c pdfobjects.c memstream.c (to 64 bit OK)
   > texpdf _texpdf_out.pdf
